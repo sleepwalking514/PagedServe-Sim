@@ -111,6 +111,12 @@ python3 cuda/validate_pytorch.py
 
 The script JIT-builds `cuda/paged_attention_torch.cu`, which includes the same kernel as the standalone benchmark, then compares FP16 output with a `torch.softmax` reference on an irregular physical block table.
 
+### Measured CUDA result
+
+On an RTX 3060 Laptop GPU, replacing the online softmax `expf` calls with CUDA's `__expf` intrinsic delivered a 1.016x geometric-mean speedup across 15 tested batch/sequence shapes and up to 6.1% on an individual shape. Six baseline and optimized runs were interleaved; each reported point contains 20 warmup and 100 measured iterations. The CPU and PyTorch reference checks still pass.
+
+Nsight Compute measured a 3.5% reduction in duration for the captured batch-1, sequence-128 launch. It also showed that this small launch uses only 0.1 full waves across the GPU, so increasing parallelism for small batches remains the larger optimization opportunity. See [`docs/cuda_optimization.md`](docs/cuda_optimization.md) for the setup, full results, and profiling commands.
+
 ## Model details and assumptions
 
 - KV block bytes are `2 * layers * kv_heads * head_dim * block_tokens * dtype_bytes`.

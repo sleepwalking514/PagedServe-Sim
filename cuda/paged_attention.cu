@@ -66,8 +66,10 @@ __global__ void paged_attention_decode_kernel(const __half* query, const __half*
         dot = __shfl_sync(0xffffffffU, dot, 0);
 
         const float next_max = fmaxf(running_max, dot);
-        const float old_scale = isfinite(running_max) ? expf(running_max - next_max) : 0.0F;
-        const float token_weight = expf(dot - next_max);
+        // FP16 output is checked against CPU and PyTorch references; the fast
+        // intrinsic shortens the online-softmax path without changing the test tolerance.
+        const float old_scale = isfinite(running_max) ? __expf(running_max - next_max) : 0.0F;
+        const float token_weight = __expf(dot - next_max);
         running_denom = running_denom * old_scale + token_weight;
         running_max = next_max;
 

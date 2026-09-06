@@ -1,6 +1,8 @@
 build/
+build-win*/
 results/
 .tools/
+.venv-win/
 *.user
 *.vcxproj.user
 mission.txt
