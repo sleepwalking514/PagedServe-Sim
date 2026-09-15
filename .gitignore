@@ -1,8 +1,19 @@
+# Local build and benchmark outputs. Recreate results with scripts/run_sensitivity.py.
 build/
-build-win*/
+build-*/
 results/
+tmp/
+__pycache__/
+*.pyc
+.pytest_cache/
 .tools/
-.venv-win/
+.venv*/
+.env
+.env.*
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
 *.user
 *.vcxproj.user
 mission.txt

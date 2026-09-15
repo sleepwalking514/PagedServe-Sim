@@ -56,7 +56,62 @@ def main() -> None:
     expected = pytorch_reference(query, key_cache, value_cache, block_table, sequence_lengths)
     torch.testing.assert_close(actual.float(), expected.float(), rtol=3e-3, atol=3e-3)
     max_error = (actual.float() - expected.float()).abs().max().item()
-    print(f"PagedAttention validation passed; max absolute error: {max_error:.6f}")
+
+    invalid_lengths = sequence_lengths.clone()
+    invalid_lengths[0] = block_table.shape[1] * block_tokens + 1
+    try:
+        extension.paged_attention_decode(query, key_cache, value_cache, block_table, invalid_lengths)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("out-of-range sequence length was not rejected")
+
+    invalid_table = block_table.clone()
+    invalid_table[0, 0] = physical_blocks
+    try:
+        extension.paged_attention_decode(query, key_cache, value_cache, invalid_table, sequence_lengths)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("out-of-range physical block id was not rejected")
+
+    # Check the 8B-like GQA attention dimensions without loading model weights.
+    # Twelve physical KV blocks use well below 1 MiB of FP16 KV on this GPU.
+    query_heads, kv_heads, head_dim = 32, 8, 128
+    block_tokens, physical_blocks = 16, 12
+    sequence_lengths = torch.tensor([119, 130], device=device, dtype=torch.int32)
+    block_table = torch.tensor(
+        [[9, 2, 11, 1, 6, 0, 8, 4, 7], [3, 10, 5, 7, 0, 11, 2, 8, 1]],
+        device=device,
+        dtype=torch.int32,
+    )
+    query = torch.randn(2, query_heads, head_dim, device=device, dtype=torch.float16) * 0.1
+    key_cache = torch.randn(physical_blocks, kv_heads, block_tokens, head_dim, device=device, dtype=torch.float16) * 0.1
+    value_cache = torch.randn_like(key_cache)
+    actual = extension.paged_attention_decode(query, key_cache, value_cache, block_table, sequence_lengths)
+    expected = pytorch_reference(query, key_cache, value_cache, block_table, sequence_lengths)
+    torch.testing.assert_close(actual.float(), expected.float(), rtol=3e-3, atol=3e-3)
+    model_shape_error = (actual.float() - expected.float()).abs().max().item()
+
+    # Exercise the same 1,024-token context limit as the CUDA profile on an
+    # irregular table. Even 70 one-layer KV blocks occupy only about 4.4 MiB.
+    physical_blocks = 70
+    sequence_lengths = torch.tensor([1024], device=device, dtype=torch.int32)
+    block_table = torch.randperm(physical_blocks, device=device)[:64].to(torch.int32).unsqueeze(0)
+    query = torch.randn(1, query_heads, head_dim, device=device, dtype=torch.float16) * 0.1
+    key_cache = torch.randn(physical_blocks, kv_heads, block_tokens, head_dim, device=device, dtype=torch.float16) * 0.1
+    value_cache = torch.randn_like(key_cache)
+    actual = extension.paged_attention_decode(query, key_cache, value_cache, block_table, sequence_lengths)
+    expected = pytorch_reference(query, key_cache, value_cache, block_table, sequence_lengths)
+    torch.testing.assert_close(actual.float(), expected.float(), rtol=3e-3, atol=3e-3)
+    long_context_error = (actual.float() - expected.float()).abs().max().item()
+
+    print(
+        "PagedAttention validation passed; "
+        f"irregular-small max absolute error: {max_error:.6f}; "
+        f"8B-like GQA-shape max absolute error: {model_shape_error:.6f}; "
+        f"1,024-token irregular max absolute error: {long_context_error:.6f}"
+    )
 
 
 if __name__ == "__main__":

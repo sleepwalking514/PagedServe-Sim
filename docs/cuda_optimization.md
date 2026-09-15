@@ -12,19 +12,24 @@
 The Windows binary was built from an x64 Visual Studio Developer Command Prompt:
 
 ```powershell
-cmake -S . -B build-win-native -G "NMake Makefiles" `
+cmake -S . -B build-win-cuda -G "NMake Makefiles" `
   -DSERVING_BUILD_CUDA=ON `
   -DCMAKE_CUDA_ARCHITECTURES=86 `
   -DCMAKE_BUILD_TYPE=RelWithDebInfo
-cmake --build build-win-native
+cmake --build build-win-cuda
 ```
+
+If CMake does not locate `nvcc`, pass its full path with
+`-DCMAKE_CUDA_COMPILER=<path-to-nvcc>` on the configure command.
 
 ## Change
 
 The kernel originally used `expf` twice per token for its online softmax update. The optimized version uses CUDA's faster `__expf` intrinsic. Because it is an approximation, correctness was checked again after the change:
 
 - standalone CPU FP32 reference: max absolute error `5.02e-5`, mean absolute error `7.59e-6`;
-- PyTorch `torch.softmax` reference: max absolute error reported as `0.000000`;
+- PyTorch `torch.softmax` reference: the original tiny irregular case reports
+  less than `1e-6` maximum absolute error; a later 32-Q/8-KV-head,
+  1,024-token irregular check reports `1.5e-5`;
 - validation tolerance: `3e-3` for the PyTorch test and `5e-3` for the standalone test.
 
 Two other changes were tested and discarded because they were slower: computing the softmax state only in lane 0, and replacing the shared-memory query tile with a per-thread register array.
@@ -69,14 +74,14 @@ Nsight reports only 0.07 waves per SM for this launch: 32 one-warp blocks are di
 Example profiling command, run from an Administrator PowerShell:
 
 ```powershell
-& "C:\Program Files\NVIDIA Corporation\Nsight Compute 2024.3.1\target\windows-desktop-win7-x64\ncu.exe" `
+& "ncu.exe" `
   --set basic `
   --target-processes all `
   --kernel-name "regex:paged_attention_decode_kernel" `
   --launch-count 1 `
   --export ".\results\paged_attention_windows" `
   --force-overwrite `
-  ".\build-win-native\serving_sim.exe" `
+  ".\build-win-cuda\serving_sim.exe" `
   --cuda-profile ".\results\decode_profile_windows.csv"
 ```
 
